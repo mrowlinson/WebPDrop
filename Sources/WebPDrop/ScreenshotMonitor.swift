@@ -108,7 +108,7 @@ final class ScreenshotMonitor {
                 }
 
                 do {
-                    let result = try ImageConverter.convert(fileURL: url, quality: capturedQuality)
+                    let result = try await ImageConverter.convert(fileURL: url, quality: capturedQuality, stripSpacesFromName: true)
                     await MainActor.run {
                         self.processedFiles.insert(name)
                         self.pendingFiles.remove(name)

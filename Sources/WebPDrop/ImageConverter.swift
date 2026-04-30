@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import CoreGraphics
 import ImageIO
 import WebP
@@ -33,19 +34,24 @@ struct ConversionResult {
 
 enum ImageConverter {
 
-    static func convert(fileURL: URL, quality: Double) throws -> ConversionResult {
+    static func convert(fileURL: URL, quality: Double, stripSpacesFromName: Bool = false) async throws -> ConversionResult {
         // Skip files that are already WebP
         if fileURL.pathExtension.lowercased() == "webp" {
             throw ConversionError.alreadyWebP
         }
 
-        // Wrap in autoreleasepool to flush CGImage/CGContext memory immediately
+        let fm = FileManager.default
+        let originalSize = Int64((try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+
+        let directory = fileURL.deletingLastPathComponent()
+        let stem = fileURL.deletingPathExtension().lastPathComponent
+        let outputStem = stripSpacesFromName ? stem.replacingOccurrences(of: " ", with: "") : stem
+        let finalURL = directory.appendingPathComponent("\(outputStem).webp")
+        let tempURL = directory.appendingPathComponent("\(outputStem).webp.tmp")
+
+        // Wrap encode in autoreleasepool to flush CGImage/CGContext memory immediately
         // after each conversion instead of deferring to the end of the task
-        return try autoreleasepool {
-            let fm = FileManager.default
-
-            let originalSize = Int64((try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
-
+        try autoreleasepool {
             // Load image via ImageIO (supports all macOS image formats)
             guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) else {
                 throw ConversionError.cannotCreateSource
@@ -93,43 +99,51 @@ enum ImageConverter {
                 throw ConversionError.encodeFailed(error.localizedDescription)
             }
 
-            // Write to temp file, then swap
-            let directory = fileURL.deletingLastPathComponent()
-            let stem = fileURL.deletingPathExtension().lastPathComponent
-            let finalURL = directory.appendingPathComponent("\(stem).webp")
-            let tempURL = directory.appendingPathComponent("\(stem).webp.tmp")
-
             do {
                 try webpData.write(to: tempURL)
             } catch {
                 throw ConversionError.writeFailed
             }
+        }
 
-            // Trash original file (recoverable via macOS Trash)
-            do {
-                try fm.trashItem(at: fileURL, resultingItemURL: nil)
-            } catch {
-                try? fm.removeItem(at: tempURL)
-                throw ConversionError.trashFailed
-            }
+        // Trash original file via NSWorkspace.recycle, which routes through Finder
+        // and correctly handles iCloud Drive / FileProvider-managed paths
+        // (FileManager.trashItem can permanently delete iCloud-synced files).
+        do {
+            try await recycle(fileURL)
+        } catch {
+            try? fm.removeItem(at: tempURL)
+            throw ConversionError.trashFailed
+        }
 
-            // Move temp to final
-            if tempURL != finalURL {
-                try? fm.removeItem(at: finalURL)
-                do {
-                    try fm.moveItem(at: tempURL, to: finalURL)
-                } catch {
-                    throw ConversionError.renameFailed
+        // Move temp to final
+        try? fm.removeItem(at: finalURL)
+        do {
+            try fm.moveItem(at: tempURL, to: finalURL)
+        } catch {
+            throw ConversionError.renameFailed
+        }
+
+        let newSize = Int64((try? finalURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+
+        return ConversionResult(
+            fileName: "\(outputStem).webp",
+            originalSize: originalSize,
+            newSize: newSize
+        )
+    }
+
+    // MARK: - Trash
+
+    private static func recycle(_ url: URL) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            NSWorkspace.shared.recycle([url]) { _, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
                 }
             }
-
-            let newSize = Int64((try? finalURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
-
-            return ConversionResult(
-                fileName: "\(stem).webp",
-                originalSize: originalSize,
-                newSize: newSize
-            )
         }
     }
 
@@ -158,4 +172,3 @@ enum ImageConverter {
     }
 
 }
-

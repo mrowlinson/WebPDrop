@@ -152,7 +152,7 @@ struct DropZoneView: View {
                         inflight += 1
                         group.addTask {
                             do {
-                                let result = try ImageConverter.convert(fileURL: url, quality: capturedQuality)
+                                let result = try await ImageConverter.convert(fileURL: url, quality: capturedQuality)
                                 print("[WebPDrop] Success: \(result.fileName) (\(result.originalSize) -> \(result.newSize) bytes)")
                                 return true
                             } catch {
