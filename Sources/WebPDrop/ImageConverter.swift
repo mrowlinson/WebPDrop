@@ -45,7 +45,9 @@ enum ImageConverter {
 
         let directory = fileURL.deletingLastPathComponent()
         let stem = fileURL.deletingPathExtension().lastPathComponent
-        let outputStem = stripSpacesFromName ? stem.replacingOccurrences(of: " ", with: "") : stem
+        let outputStem = stripSpacesFromName
+            ? String(stem.unicodeScalars.filter { !CharacterSet.whitespaces.contains($0) })
+            : stem
         let finalURL = directory.appendingPathComponent("\(outputStem).webp")
         let tempURL = directory.appendingPathComponent("\(outputStem).webp.tmp")
 
