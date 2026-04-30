@@ -12,7 +12,7 @@ struct WebPDropApp: App {
         WindowGroup {
             DropZoneView()
         }
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
     }
 }
 

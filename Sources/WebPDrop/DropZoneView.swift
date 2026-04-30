@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct DropZoneView: View {
     @State private var status: String = "Drop images here"
@@ -19,7 +18,7 @@ struct DropZoneView: View {
             autoconvertRow
         }
         .padding(20)
-        .frame(width: 400)
+        .frame(minWidth: 280, idealWidth: 400, minHeight: 180, idealHeight: 360)
         .onChange(of: autoconvert) { _, enabled in
             if enabled {
                 monitor.start()
@@ -69,11 +68,11 @@ struct DropZoneView: View {
                     .multilineTextAlignment(.center)
             }
         }
-        .frame(height: 220)
-        .onDrop(of: [.image], isTargeted: $isTargeted) { providers in
-            handleDrop(providers)
+        .frame(minHeight: 60, maxHeight: .infinity)
+        .dropDestination(for: URL.self) { urls, _ in
+            handleDrop(urls)
             return true
-        }
+        } isTargeted: { isTargeted = $0 }
     }
 
     private var autoconvertRow: some View {
@@ -106,37 +105,15 @@ struct DropZoneView: View {
         }
     }
 
-    private func handleDrop(_ providers: [NSItemProvider]) {
+    private func handleDrop(_ urls: [URL]) {
         guard !isProcessing else { return }
+        guard !urls.isEmpty else { return }
         isProcessing = true
         status = "Converting..."
 
         let capturedQuality = monitor.quality
 
         Task {
-            // Collect URLs from providers
-            let urls = await withTaskGroup(of: URL?.self, returning: [URL].self) { group in
-                for provider in providers {
-                    group.addTask {
-                        await withCheckedContinuation { continuation in
-                            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-                                guard let data = item as? Data,
-                                      let url = URL(dataRepresentation: data, relativeTo: nil, isAbsolute: true) else {
-                                    continuation.resume(returning: nil)
-                                    return
-                                }
-                                continuation.resume(returning: url)
-                            }
-                        }
-                    }
-                }
-                var result: [URL] = []
-                for await url in group {
-                    if let url { result.append(url) }
-                }
-                return result
-            }
-
             // Convert with bounded concurrency
             var converted = 0
             var failed = 0
